@@ -394,7 +394,7 @@ object GenAST {
   private def printExpr(expr: Expr): Chain[Segment] = expr match {
     case Block(statements, last) =>
       Chain(
-        Segment.Space,
+        Segment.SpaceIfNotAlreadyPrinted,
         Segment
           .simpleBlock("{", (printDefinitions(statements).map(_.toList) ++ printExpr(last).map(List(_))).toList, "}"),
         Segment.NewlineIfNotAlreadyPrinted

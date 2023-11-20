@@ -44,6 +44,7 @@ object CodePrinterSegment {
       close: List[CodePrinterSegment]
   ) extends CodePrinterSegment
   case object Newline                                                   extends CodePrinterSegment
+  case object SpaceIfNotAlreadyPrinted                                  extends CodePrinterSegment
   case object NewlineIfNotAlreadyPrinted                                extends CodePrinterSegment
   case object Indent                                                    extends CodePrinterSegment
   case object Outdent                                                   extends CodePrinterSegment
@@ -109,6 +110,9 @@ object CodePrinter {
             )
 
           case NewlineIfNotAlreadyPrinted =>
+            printRec(if (combineHead("").lastOption.contains(' ')) nextSegments else Space :: nextSegments, indent, acc)
+
+          case SpaceIfNotAlreadyPrinted =>
             val justNewline = combineHead("") == "  " * indent
             printRec(if (justNewline) nextSegments else Newline :: nextSegments, indent, acc)
 
@@ -132,6 +136,7 @@ object CodePrinter {
               indent,
               acc
             )
+
           case Space =>
             printRec(nextSegments, indent, combineHead(" ") :: acc.drop(1))
         }
