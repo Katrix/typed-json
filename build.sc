@@ -7,7 +7,7 @@ import mill.scalajslib._
 import mill.scalalib._
 import mill.scalalib.publish._
 
-val scalaVersions = Seq("2.13.12", "3.3.1")
+val scalaVersions = Seq("2.12.18", "2.13.12", "3.3.1")
 
 trait TypedJsonCommon extends SbtModule with CiReleaseModule {
   override def scalacOptions = T {
