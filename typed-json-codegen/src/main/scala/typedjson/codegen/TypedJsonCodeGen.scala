@@ -45,7 +45,11 @@ trait TypedJsonCodeGen {
     val relativeYamlPath = Compat.javaIteratorToScalaIterator(relativeYamlFile.iterator).map(_.toString).toList.init
 
     val typeDef =
-      yaml.parser.parse(Compat.javaListToScala(Files.readAllLines(yamlFile)).mkString("\n")).flatMap(_.as[TypeDef]).toTry.get
+      yaml.parser
+        .parse(Compat.javaListToScala(Files.readAllLines(yamlFile)).mkString("\n"))
+        .flatMap(_.as[TypeDef])
+        .toTry
+        .get
 
     val packageLoc = relativeYamlPath.mkString(".")
     val extraImports =
@@ -175,10 +179,9 @@ trait TypedJsonCodeGen {
         val jsonName = fieldInfo.jsonName.getOrElse(field)
         val fieldLit = "\"" + jsonName + "\""
         if (fieldInfo.isExtension) {
-          GenAST.FunctionCall(
+          GenAST.simpleFunctionCall(
             "JsonObjectFrom.FromExtension",
-            Nil,
-            Seq(Seq(GenAST.FreeformExpr(fieldLit), GenAST.FreeformExpr(camelCaseFromSnakecase(field))))
+            Seq(GenAST.FreeformExpr(fieldLit), GenAST.FreeformExpr(camelCaseFromSnakecase(field)))
           )
         } else {
           if (isFieldUndefined(fieldInfo, allUndefined))
@@ -191,7 +194,7 @@ trait TypedJsonCodeGen {
         name = defName,
         parameters = Seq(params),
         returnType = tpeName,
-        rhs = Some(GenAST.FunctionCall("makeRawFromFields", Nil, Seq(args)))
+        rhs = Some(GenAST.simpleFunctionCall("makeRawFromFields", args))
       )
     }.toSeq
 
@@ -235,17 +238,22 @@ trait TypedJsonCodeGen {
             returnType = tpe,
             rhs = Some(
               if (fieldDef.isExtension)
-                GenAST.FunctionCall(
+                GenAST.simpleFunctionCall(
                   s"$tpe.makeRaw",
-                  Nil,
                   Seq(
-                    Seq(
-                      GenAST.FreeformExpr("json"),
-                      GenAST.FunctionCall("extensionCache", Nil, Seq(Seq(GenAST.FreeformExpr("\"" + jsonName + "\""))))
+                    GenAST.identExpr("json"),
+                    GenAST.simpleFunctionCall(
+                      "extensionCache",
+                      Seq(GenAST.stringExpr(jsonName))
                     )
                   )
                 )
-              else GenAST.FunctionCall("selectDynamic", Seq(tpe), Seq(Seq(GenAST.FreeformExpr("\"" + jsonName + "\""))))
+              else
+                GenAST.FunctionCall(
+                  GenAST.FreeformExpr("selectDynamic"),
+                  Seq(tpe),
+                  Seq(Seq(GenAST.stringExpr(jsonName)))
+                )
             )
           ),
           GenAST.DefDef(
@@ -255,27 +263,21 @@ trait TypedJsonCodeGen {
             returnType = tpeName,
             rhs = Some(
               if (fieldDef.isExtension)
-                GenAST.FunctionCall(
+                GenAST.simpleFunctionCall(
                   "objWithJson",
-                  Nil,
                   Seq(
-                    Seq(
-                      GenAST.FreeformExpr(tpeName),
-                      GenAST.FreeformExpr("newValue.json"),
-                      GenAST.FreeformExpr("newValue.cacheCopy")
-                    )
+                    GenAST.identExpr(tpeName),
+                    GenAST.identExpr("newValue.json"),
+                    GenAST.identExpr("newValue.cacheCopy")
                   )
                 )
               else
-                GenAST.FunctionCall(
+                GenAST.simpleFunctionCall(
                   if (undef) "objWithUndef" else "objWith",
-                  Nil,
                   Seq(
-                    Seq(
-                      GenAST.FreeformExpr(tpeName),
-                      GenAST.FreeformExpr("\"" + jsonName + "\""),
-                      GenAST.FreeformExpr("newValue")
-                    )
+                    GenAST.identExpr(tpeName),
+                    GenAST.stringExpr(jsonName),
+                    GenAST.identExpr("newValue")
                   )
                 )
             )
@@ -300,25 +302,29 @@ trait TypedJsonCodeGen {
             Seq(
               GenAST.Parameter(name = "json", tpe = "Json"),
               GenAST
-                .Parameter(name = "cache", tpe = "Map[String, Any]", default = Some(GenAST.FreeformExpr("Map.empty")))
+                .Parameter(name = "cache", tpe = "Map[String, Any]", default = Some(GenAST.identExpr("Map.empty")))
             )
           )
         )
       ),
-      extend = "JsonObject(json, cache)" +: classTypeDef.anonPart.`extends`,
+      extend = GenAST.simpleFunctionCall(
+        "JsonObject",
+        Seq(GenAST.identExpr("json"), GenAST.identExpr("cache"))
+      ) +: classTypeDef.anonPart.`extends`.map(GenAST.FreeformExpr(_)),
       members = classDefs :+ GenAST.DefDef(
         mods = Seq("override"),
         name = "values",
         returnType = "Seq[() => Any]",
         rhs = Some(
-          GenAST.FunctionCall("Seq", Nil, Seq(values))
+          GenAST.simpleFunctionCall("Seq", values)
         )
       )
     )
 
     val companionCode = GenAST.Module(
       name = tpeName,
-      extend = s"JsonObjectCompanion[$tpeName]" +: classTypeDef.anonPart.objectExtends,
+      extend = GenAST.FreeformExpr(s"JsonObjectCompanion[$tpeName]") +: classTypeDef.anonPart.objectExtends
+        .map(GenAST.FreeformExpr(_)),
       members = makeRaw ++ makeDefs ++ allInnerTypes.flatMap(codeFromTypeDef(_))
     )
 
@@ -328,7 +334,7 @@ trait TypedJsonCodeGen {
   def codeFromObjectOnly(objectOnlyDef: TypeDef.ObjectOnlyDef): GenAST.Definition =
     GenAST.Module(
       name = objectOnlyDef.name,
-      extend = objectOnlyDef.objectExtends,
+      extend = objectOnlyDef.objectExtends.map(GenAST.FreeformExpr(_)),
       members = objectOnlyDef.innerTypes.flatMap(codeFromTypeDef(_))
     )
 
@@ -354,7 +360,7 @@ trait TypedJsonCodeGen {
           parameters = Seq(Seq(GenAST.Parameter(name = "value", tpe = underlyingType)))
         )
       ),
-      extend = Seq(s"JsonEnum[$underlyingType]")
+      extend = Seq(GenAST.FreeformExpr(s"JsonEnum[$underlyingType]"))
     )
 
     val bitfieldMember =
@@ -368,12 +374,12 @@ trait TypedJsonCodeGen {
                 Seq(Seq(GenAST.Parameter(mods = Seq("private", "val"), name = "here", tpe = tpeName)))
               )
             ),
-            extend = Seq("AnyVal"),
+            extend = Seq(GenAST.identExpr("AnyVal")),
             members = Seq(
               GenAST.DefDef(
                 name = s"to$underlyingType",
                 returnType = underlyingType,
-                rhs = Some(GenAST.FreeformExpr("here.value"))
+                rhs = Some(GenAST.identExpr("here.value"))
               ),
               GenAST.DefDef(
                 name = "++",
@@ -399,7 +405,9 @@ trait TypedJsonCodeGen {
 
     val companionCode = GenAST.Module(
       name = tpeName,
-      extend = Seq(s"JsonEnumCompanion[$underlyingType, $tpeName]") ++ enumTypeDef.objectExtends,
+      extend = GenAST.FreeformExpr(s"JsonEnumCompanion[$underlyingType, $tpeName]") +: enumTypeDef.objectExtends.map(
+        GenAST.FreeformExpr(_)
+      ),
       members = (enumTypeDef.values.map { case (name, value) =>
         GenAST.ValDef(
           docs = value.documentation,
@@ -415,7 +423,12 @@ trait TypedJsonCodeGen {
       ) :+ GenAST.ValDef(
         name = "values",
         returnType = s"Seq[$tpeName]",
-        rhs = Some(GenAST.FunctionCall("Seq", Nil, Seq(enumTypeDef.values.keys.map(GenAST.FreeformExpr(_)).toSeq)))
+        rhs = Some(
+          GenAST.simpleFunctionCall(
+            "Seq",
+            enumTypeDef.values.keys.map(GenAST.FreeformExpr(_)).toSeq
+          )
+        )
       )) ++ bitfieldMember ++ enumTypeDef.innerTypes.flatMap(codeFromTypeDef(_))
     )
 
@@ -428,7 +441,8 @@ trait TypedJsonCodeGen {
     val companion = GenAST.Module(
       docs = opaqueTypeDef.documentation,
       name = tpeName,
-      extend = Seq(s"JsonOpaqueCompanion[${opaqueTypeDef.underlying}]") ++ opaqueTypeDef.objectExtends,
+      extend = GenAST.FreeformExpr(s"JsonOpaqueCompanion[${opaqueTypeDef.underlying}]") +: opaqueTypeDef.objectExtends
+        .map(GenAST.FreeformExpr(_)),
       members = Seq(
         GenAST.TypeDef(name = tpeName, rhs = Some("OpaqueType"))
       ) ++ opaqueTypeDef.innerTypes.flatMap(codeFromTypeDef(_))

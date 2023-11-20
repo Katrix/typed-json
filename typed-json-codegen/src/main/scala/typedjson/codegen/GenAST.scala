@@ -41,6 +41,10 @@ object GenAST {
   )
 
   sealed trait Definition
+  sealed trait ModsDefinition extends Definition {
+    def mods: Seq[String]
+    def withMods(mods: Seq[String]): ModsDefinition
+  }
 
   case class Imports(
       imports: Seq[String]
@@ -56,17 +60,25 @@ object GenAST {
       name: String,
       typeParameters: Seq[TypeParameter] = Nil,
       constructors: Seq[Constructor] = Nil,
-      extend: Seq[String] = Nil,
+      extend: Seq[Expr] = Nil,
       members: Seq[Definition] = Nil,
       isTrait: Boolean = false
   ) extends Definition
+      with ModsDefinition {
+
+    override def withMods(mods: Seq[String]): Class = copy(mods = mods)
+  }
   case class Module(
       docs: Option[String] = None,
       mods: Seq[String] = Nil,
       name: String,
-      extend: Seq[String] = Nil,
+      extend: Seq[Expr] = Nil,
       members: Seq[Definition] = Nil
   ) extends Definition
+      with ModsDefinition {
+
+    override def withMods(mods: Seq[String]): Module = copy(mods = mods)
+  }
 
   case class DefDef(
       docs: Option[String] = None,
@@ -78,6 +90,10 @@ object GenAST {
       returnType: String,
       rhs: Option[Expr] = None
   ) extends Definition
+      with ModsDefinition {
+
+    override def withMods(mods: Seq[String]): DefDef = copy(mods = mods)
+  }
   case class ValDef(
       docs: Option[String] = None,
       mods: Seq[String] = Nil,
@@ -85,6 +101,10 @@ object GenAST {
       returnType: String,
       rhs: Option[Expr] = None
   ) extends Definition
+      with ModsDefinition {
+
+    override def withMods(mods: Seq[String]): ValDef = copy(mods = mods)
+  }
   case class TypeDef(
       docs: Option[String] = None,
       mods: Seq[String] = Nil,
@@ -93,6 +113,10 @@ object GenAST {
       lowerBound: Option[String] = None,
       rhs: Option[String] = None
   ) extends Definition
+      with ModsDefinition {
+
+    override def withMods(mods: Seq[String]): TypeDef = copy(mods = mods)
+  }
   case class FreeformDefinition(
       documentation: Option[String] = None,
       content: String
@@ -122,12 +146,19 @@ object GenAST {
       lowerBound: Option[String] = None
   )
 
-  sealed trait Expr                                                                            extends Definition
-  case class Block(statements: Seq[Definition], last: Expr)                                    extends Expr
-  case class FunctionCall(function: String, typeArgs: Seq[String], argss: Seq[Seq[Expr]])      extends Expr
-  case class AssignExpr(lhs: String, rhs: Expr)                                                extends Expr
-  case class FreeformExpr(code: String)                                                        extends Expr
-  case class NewExpr(extend: String, withs: Seq[String] = Nil, members: Seq[Definition] = Nil) extends Expr
+  sealed trait Expr                                                                        extends Definition
+  case class Block(statements: Seq[Definition], last: Expr)                                extends Expr
+  case class FunctionCall(function: Expr, typeArgs: Seq[String], argss: Seq[Seq[Expr]])    extends Expr
+  case class AssignExpr(lhs: String, rhs: Expr)                                            extends Expr
+  case class FreeformExpr(code: String)                                                    extends Expr
+  case class NewExpr(extend: Expr, withs: Seq[Expr] = Nil, members: Seq[Definition] = Nil) extends Expr
+
+  def simpleFunctionCall(function: String, args: Seq[Expr]): FunctionCall =
+    FunctionCall(FreeformExpr(function), Nil, Seq(args))
+
+  def stringExpr(s: String): Expr = FreeformExpr("\"" + s + "\"")
+  
+  def identExpr(s: String): Expr = FreeformExpr(s)
 
   def printFile(file: ScalaFile): String = {
     s"""|//noinspection ${file.intelliJIgnoredInspections.mkString(", ")}
@@ -207,7 +238,8 @@ object GenAST {
           Segment.Content("object"),
           Segment.Space,
           Segment.Content(name)
-        ) ++ printExtends(extend) :+ Segment.Space :+ Segment.simpleBlock(
+        ) ++ (if (name.last.isLetterOrDigit) Chain.empty
+              else Chain(Segment.Space)) ++ printExtends(extend) :+ Segment.Space :+ Segment.simpleBlock(
           "{",
           printDefinitions(members).map(_.toList).toList,
           "}"
@@ -218,15 +250,17 @@ object GenAST {
           docs,
           types = typeParameters.map(t => t.name -> t.docs),
           params = (parameters.flatten ++ implicitParameters).map(p => p.name -> p.docs)
-        ) ++ printMods(mods) ++ Chain(Segment.Content("def"), Segment.Space, Segment.Content(name)) ++ printParameters(
-          typeParameters,
-          parameters,
-          implicitParameters
-        ) ++ Chain(
-          Segment.Content(":"),
-          Segment.Space,
-          Segment.Content(returnType)
-        ) ++ printRhs(rhs)
+        ) ++ printMods(mods) ++ Chain(Segment.Content("def"), Segment.Space, Segment.Content(name)) ++
+          (if (name.last.isLetterOrDigit) Chain.empty
+           else Chain(Segment.Space)) ++ printParameters(
+            typeParameters,
+            parameters,
+            implicitParameters
+          ) ++ Chain(
+            Segment.Content(":"),
+            Segment.Space,
+            Segment.Content(returnType)
+          ) ++ printRhs(rhs)
 
       case ValDef(docs, mods, name, returnType, rhs) =>
         makeDocs(docs) ++ printMods(mods) ++
@@ -247,13 +281,17 @@ object GenAST {
           Chain(Segment.Content("type"), Segment.Space, Segment.Content(name)) ++ lower ++ upper ++ equal
 
       case FreeformDefinition(docs, content) =>
-        makeDocs(docs) ++ Chain(
-          Segment.NewlineIfNotAlreadyPrinted
-        ) ++ Chain
-          .fromIterableOnce(content.linesIterator)
-          .flatMap(c => Chain(Segment.Content(c), Segment.Newline)) ++ Chain(
-          Segment.NewlineIfNotAlreadyPrinted
-        )
+        if (content.isEmpty) Chain.empty
+        else {
+          val lines = content.linesIterator.toSeq
+          val contentSegments =
+            Chain.fromSeq(lines.init).flatMap(s => Chain(Segment.Content(s), Segment.Newline)) :+ Segment.Content(
+              lines.last
+            )
+          makeDocs(docs) ++ Chain(Segment.NewlineIfNotAlreadyPrinted) ++ contentSegments ++ Chain(
+            Segment.NewlineIfNotAlreadyPrinted
+          )
+        }
 
       case e: Expr => printExpr(e)
     }
@@ -303,16 +341,16 @@ object GenAST {
     }
   }
 
-  private def printWiths(withs: Seq[String]): Chain[Segment] = {
-    def part(keyword: String)(t: String) =
-      spaced(keyword) :+ Segment.Content(t)
+  private def printWiths(withs: Seq[Expr]): Chain[Segment] = {
+    def part(keyword: String)(t: Expr) =
+      spaced(keyword) ++ printExpr(t)
 
     Chain.fromSeq(withs).flatMap(part("with"))
   }
 
-  private def printExtends(extend: Seq[String]): Chain[Segment] = {
-    def part(keyword: String)(t: String) =
-      spaced(keyword) :+ Segment.Content(t)
+  private def printExtends(extend: Seq[Expr]): Chain[Segment] = {
+    def part(keyword: String)(t: Expr) =
+      spaced(keyword) ++ printExpr(t)
 
     Chain.fromOption(extend.headOption).flatMap(part("extends")) ++ printWiths(extend.drop(1))
   }
@@ -362,8 +400,7 @@ object GenAST {
       )
 
     case FunctionCall(function, typeArgs, argss) =>
-      Chain(
-        Segment.Content(function),
+      printExpr(function) ++ Chain(
         Segment.simpleParameterBlock("[", typeArgs.toList.map(s => List(Segment.Content(s))), "]")
       ) ++ Chain
         .fromSeq(argss)
@@ -373,16 +410,27 @@ object GenAST {
       Segment.Content(lhs) +: (spaced("=") ++ printExpr(rhs))
 
     case NewExpr(extend, withs, members) =>
-      Chain(
+      val newPart = Chain(
         Segment.Content("new"),
-        Segment.Space,
-        Segment.Content(extend)
-      ) ++ printWiths(withs) :+ Segment.Space :+ Segment.simpleBlock(
+        Segment.Space
+      ) ++ printExpr(extend) ++ printWiths(withs)
+
+      val membersPart = Segment.simpleBlock(
         "{",
         printDefinitions(members).map(_.toList).toList,
         "}"
-      ) :+ Segment.NewlineIfNotAlreadyPrinted
+      )
 
-    case FreeformExpr(code) => Chain(Segment.Content(code))
+      if (members.nonEmpty) newPart :+ Segment.Space :+ membersPart :+ Segment.NewlineIfNotAlreadyPrinted
+      else newPart :+ Segment.NewlineIfNotAlreadyPrinted
+
+    case FreeformExpr(code) =>
+      if (code.isEmpty) Chain.empty
+      else {
+        val lines = code.linesIterator.toSeq
+        Chain.fromSeq(lines.init).flatMap(s => Chain(Segment.Content(s), Segment.Newline)) :+ Segment.Content(
+          lines.last
+        )
+      }
   }
 }
