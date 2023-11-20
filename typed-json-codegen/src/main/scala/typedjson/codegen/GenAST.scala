@@ -30,6 +30,9 @@ import typedjson.codegen.CodePrinterSegment as Segment
 
 object GenAST {
 
+  // Drop this when we drop support for Scala 2.12
+  private def optionWhen[A](cond: Boolean)(a: => A) = if (cond) Some(a) else None
+
   case class ScalaFile(
       packageLoc: String,
       intelliJIgnoredInspections: Seq[String],
@@ -280,9 +283,9 @@ object GenAST {
           List(Segment.Content("*"), Segment.Space),
           List(
             docs.map(s => List(List(Segment.Content(s)))),
-            Option.when(typesChain.nonEmpty || paramsChain.nonEmpty)(Nil: List[List[Segment]]),
-            Option.when(typesChain.nonEmpty)(typesChain),
-            Option.when(paramsChain.nonEmpty)(paramsChain)
+            optionWhen(typesChain.nonEmpty || paramsChain.nonEmpty)(Nil: List[List[Segment]]),
+            optionWhen(typesChain.nonEmpty)(typesChain),
+            optionWhen(paramsChain.nonEmpty)(paramsChain)
           ).flatMap(_.toList).flatten,
           Nil,
           List(Segment.Space, Segment.Space, Segment.Content("*/"))
@@ -326,9 +329,9 @@ object GenAST {
     }
 
     def printParameter(param: Parameter): Chain[Segment] =
-      printMods(param.mods)
-        ++ Chain(Segment.Content(param.name + ":"), Segment.Space, Segment.Content(param.tpe))
-        ++ printRhs(param.default)
+      printMods(param.mods) ++
+        Chain(Segment.Content(param.name + ":"), Segment.Space, Segment.Content(param.tpe)) ++
+        printRhs(param.default)
 
     def printParameterBlock(block: Seq[Parameter]): Segment.ParameterBlock =
       Segment.simpleParameterBlock("(", block.toList.map(printParameter(_).toList), ")")

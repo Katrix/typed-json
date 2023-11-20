@@ -27,8 +27,6 @@ package typedjson.codegen
 
 import java.nio.file.{Files, Path}
 
-import scala.jdk.CollectionConverters.*
-
 import io.circe.*
 
 trait TypedJsonCodeGen {
@@ -42,10 +40,12 @@ trait TypedJsonCodeGen {
     isUndefined(allUndefined, field.withUndefined, field.alwaysPresent)
 
   def generateCodeFromFile(generatedRoot: Path, yamlFile: Path): String = {
-    val relativeYamlPath = generatedRoot.relativize(yamlFile).iterator.asScala.map(_.toString).toList.init
+    val relativeYamlFile = generatedRoot.relativize(yamlFile)
+
+    val relativeYamlPath = Compat.javaIteratorToScalaIterator(relativeYamlFile.iterator).map(_.toString).toList.init
 
     val typeDef =
-      yaml.parser.parse(Files.readAllLines(yamlFile).asScala.mkString("\n")).flatMap(_.as[TypeDef]).toTry.get
+      yaml.parser.parse(Compat.javaListToScala(Files.readAllLines(yamlFile)).mkString("\n")).flatMap(_.as[TypeDef]).toTry.get
 
     val packageLoc = relativeYamlPath.mkString(".")
     val extraImports =

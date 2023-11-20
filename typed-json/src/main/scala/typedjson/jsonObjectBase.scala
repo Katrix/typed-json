@@ -29,10 +29,11 @@ import scala.language.implicitConversions
 
 import io.circe.*
 import io.circe.syntax.*
+import scala.collection.compat.*
 
 class JsonObjectBase(val json: Json, startCache: Map[String, Any]) {
 
-  private[typedjson] val cache = startCache.to(collection.mutable.Map)
+  private[typedjson] val cache = collection.mutable.Map.from(startCache)
 
   def cacheCopy: Map[String, Any] = cache.toMap
 
@@ -74,7 +75,7 @@ class JsonObjectBase(val json: Json, startCache: Map[String, Any]) {
   ): A = companion.makeRaw(json.deepMerge(json), cacheCopy ++ cacheUpdates)
 
   def objWithout[A <: JsonObjectBase](companion: JsonObjectCompanionBase[A], name: String): A =
-    companion.makeRaw(json.mapObject(_.remove(name)), cacheCopy.removed(name))
+    companion.makeRaw(json.mapObject(_.remove(name)), cacheCopy - name)
 
   def retype[A <: JsonObjectBase](companion: JsonObjectCompanionBase[A]): A =
     companion.makeRaw(json, Map.empty)

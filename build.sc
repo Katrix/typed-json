@@ -59,7 +59,8 @@ trait TypedJsonModule extends CrossPlatform { self =>
   trait Shared extends CrossPlatformCrossScalaModule with CrossSbtModule with TypedJsonCommon {
 
     override def ivyDeps: T[Agg[Dep]] = super.ivyDeps() ++ Agg(
-      ivy"io.circe::circe-core::0.14.2"
+      ivy"io.circe::circe-core::0.14.2",
+      ivy"org.scala-lang.modules::scala-collection-compat::2.11.0"
     )
 
     override def publishDescription: T[String] = "Typed JSON without decoding it to a case class"

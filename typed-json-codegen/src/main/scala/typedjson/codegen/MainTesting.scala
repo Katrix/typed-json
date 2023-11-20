@@ -25,11 +25,11 @@
 
 package typedjson.codegen
 
+/*
 import java.nio.file.{Files, Paths}
 
 import scala.jdk.StreamConverters.*
 
-/*
 object MainTesting {
   def main(args: Array[String]): Unit = {
     val inputFolder  = Paths.get(args.head)
