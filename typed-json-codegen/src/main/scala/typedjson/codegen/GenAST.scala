@@ -152,15 +152,16 @@ object GenAST {
   case class AssignExpr(lhs: String, rhs: Expr)                                            extends Expr
   case class FreeformExpr(code: String)                                                    extends Expr
   case class NewExpr(extend: Expr, withs: Seq[Expr] = Nil, members: Seq[Definition] = Nil) extends Expr
+  case class ExprWithFreeform(leftFreeform: String, expr: Expr, rightFreeform: String)     extends Expr
 
   def simpleFunctionCall(function: String, args: Seq[Expr]): FunctionCall =
     FunctionCall(FreeformExpr(function), Nil, Seq(args))
 
   def stringExpr(s: String): Expr = FreeformExpr("\"" + s + "\"")
-  
+
   def identExpr(s: String): Expr = FreeformExpr(s)
 
-  def printFile(file: ScalaFile): String = {
+  def printFile(file: ScalaFile)(implicit printerOptions: PrinterOptions): String = {
     s"""|//noinspection ${file.intelliJIgnoredInspections.mkString(", ")}
         |package ${file.packageLoc}
         |
@@ -432,5 +433,8 @@ object GenAST {
           lines.last
         )
       }
+
+    case ExprWithFreeform(leftFreeform, expr, rightFreeform) =>
+      printExpr(FreeformExpr(leftFreeform)) ++ printExpr(expr) ++ printExpr(FreeformExpr(rightFreeform))
   }
 }

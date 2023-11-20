@@ -39,7 +39,7 @@ trait TypedJsonCodeGen {
   def isFieldUndefined(field: FieldDef, allUndefined: Boolean): Boolean =
     isUndefined(allUndefined, field.withUndefined, field.alwaysPresent)
 
-  def generateCodeFromFile(generatedRoot: Path, yamlFile: Path): String = {
+  def generateCodeFromFile(generatedRoot: Path, yamlFile: Path)(implicit printerOptions: PrinterOptions): String = {
     val relativeYamlFile = generatedRoot.relativize(yamlFile)
 
     val relativeYamlPath = Compat.javaIteratorToScalaIterator(relativeYamlFile.iterator).map(_.toString).toList.init

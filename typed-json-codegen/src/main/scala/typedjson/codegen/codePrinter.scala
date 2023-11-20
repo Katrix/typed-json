@@ -61,10 +61,16 @@ object CodePrinterSegment {
     ParameterBlock(false, List(Content(open)), Nil, content, List(Content(","), Space), List(Content(close)))
 }
 
+case class PrinterOptions(
+    maxLineLength: Int
+)
+
 object CodePrinter {
 
   @tailrec
-  def printRec(segments: List[CodePrinterSegment], indent: Int, acc: List[String]): List[String] = {
+  def printRec(segments: List[CodePrinterSegment], indent: Int, acc: List[String])(
+      implicit options: PrinterOptions
+  ): List[String] = {
     import CodePrinterSegment._
     segments match {
       case Nil => acc
@@ -94,7 +100,7 @@ object CodePrinter {
             printRec(
               if (content.isEmpty)
                 nextSegments
-              else if (printContent.length > 1 || combineHead(printContent.mkString("")).length > 80)
+              else if (printContent.length > 1 || combineHead(printContent.mkString("")).length > options.maxLineLength)
                 Block(open, contentWithExtra, close) :: nextSegments
               else
                 open ::: singlelineContent ::: close ::: nextSegments,
@@ -113,9 +119,14 @@ object CodePrinter {
           case Outdent => printRec(nextSegments, indent - 1, acc)
           case NewlineIfNotEnoughSpace(content) =>
             val printContent = print(content)
+            val isBlocks = content.forall {
+              case _: Block          => true
+              case _: ParameterBlock => true
+              case _                 => false
+            }
 
             printRec(
-              if (printContent.length > 1 || combineHead(printContent.mkString("")).length > 80)
+              if (!isBlocks && combineHead(printContent.mkString("")).length > options.maxLineLength)
                 (Indent :: Newline :: content) ::: (Outdent :: nextSegments)
               else content ::: nextSegments,
               indent,
@@ -127,7 +138,7 @@ object CodePrinter {
     }
   }
 
-  def print(segments: List[CodePrinterSegment], indent: Int = 0): List[String] =
+  def print(segments: List[CodePrinterSegment], indent: Int = 0)(implicit options: PrinterOptions): List[String] =
     // segments.map(_.toString)
     printRec(segments, indent, Nil).reverse
 }
