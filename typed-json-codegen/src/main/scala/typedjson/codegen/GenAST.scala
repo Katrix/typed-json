@@ -172,7 +172,7 @@ object GenAST {
         |${CodePrinter.print(printDefinitions(file.definitions).flatMap(identity).toList).mkString("\n")}""".stripMargin
   }
 
-  private def printDefinitions(definitions: Seq[Definition]): Chain[Chain[Segment]] =
+  def printDefinitions(definitions: Seq[Definition]): Chain[Chain[Segment]] =
     Chain.fromSeq(definitions).map { definition =>
       val segments = printDefinition(definition)
       if (segments.nonEmpty) segments :+ Segment.Newline else segments
@@ -181,7 +181,7 @@ object GenAST {
   private def spaced(content: String): Chain[Segment] =
     Chain(Segment.Space, Segment.Content(content), Segment.Space)
 
-  private def printDefinition(definition: Definition): Chain[Segment] = {
+  def printDefinition(definition: Definition): Chain[Segment] = {
     definition match {
       case Imports(imports) =>
         if (imports.isEmpty) Chain.empty
@@ -399,7 +399,7 @@ object GenAST {
       Chain(
         Segment.SpaceIfNotAlreadyPrinted,
         Segment
-          .simpleBlock("{", (printDefinitions(statements).map(_.toList) ++ printExpr(last).map(List(_))).toList, "}"),
+          .simpleBlock("{", (printDefinitions(statements).map(_.toList) ++ Chain(printExpr(last).toList)).toList, "}"),
         Segment.NewlineIfNotAlreadyPrinted
       )
 
@@ -414,11 +414,7 @@ object GenAST {
       Segment.Content(lhs) +: (spaced("=") ++ printExpr(rhs))
 
     case NewExpr(extend, withs, members) =>
-      val newPart = Chain(
-        Segment.Content("new"),
-        Segment.Space
-      ) ++ printExpr(extend) ++ printWiths(withs)
-
+      val newPart = Chain(Segment.Content("new"), Segment.Space) ++ printExpr(extend) ++ printWiths(withs)
       val membersPart = Segment.simpleBlock(
         "{",
         printDefinitions(members).map(_.toList).toList,
