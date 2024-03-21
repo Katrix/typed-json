@@ -109,10 +109,10 @@ object CodePrinter {
               acc
             )
 
-          case NewlineIfNotAlreadyPrinted =>
+          case SpaceIfNotAlreadyPrinted =>
             printRec(if (combineHead("").lastOption.contains(' ')) nextSegments else Space :: nextSegments, indent, acc)
 
-          case SpaceIfNotAlreadyPrinted =>
+          case NewlineIfNotAlreadyPrinted =>
             val justNewline = combineHead("") == "  " * indent
             printRec(if (justNewline) nextSegments else Newline :: nextSegments, indent, acc)
 
