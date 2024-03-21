@@ -208,7 +208,7 @@ trait TypedJsonCodeGen {
       .groupBy(_._1.name)
       .map { case (name, fields) =>
         val (field, idx) = fields.maxBy(_._1.version)
-        name -> (field, idx)
+        (name, (field, idx))
       }
       .toSeq
       .sortBy(_._2._2)

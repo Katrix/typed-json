@@ -109,6 +109,7 @@ object GenAST {
       docs: Option[String] = None,
       mods: Seq[String] = Nil,
       name: String,
+      typeParameters: Seq[TypeParameter] = Nil,
       upperBound: Option[String] = None,
       lowerBound: Option[String] = None,
       rhs: Option[String] = None
@@ -153,6 +154,7 @@ object GenAST {
   case class FreeformExpr(code: String)                                                    extends Expr
   case class NewExpr(extend: Expr, withs: Seq[Expr] = Nil, members: Seq[Definition] = Nil) extends Expr
   case class ExprWithFreeform(leftFreeform: String, expr: Expr, rightFreeform: String)     extends Expr
+  case class Select(qualifier: Expr, property: String)                                     extends Expr
 
   def simpleFunctionCall(function: String, args: Seq[Expr]): FunctionCall =
     FunctionCall(FreeformExpr(function), Nil, Seq(args))
@@ -273,13 +275,14 @@ object GenAST {
             Segment.Content(returnType)
           ) ++ printRhs(rhs)
 
-      case TypeDef(docs, mods, name, upperBound, lowerBound, rhs) =>
-        val upper = upperBound.fold(Chain.empty[Segment])(t => spaced(">:") :+ Segment.Content(t))
-        val lower = lowerBound.fold(Chain.empty[Segment])(t => spaced("<:") :+ Segment.Content(t))
-        val equal = rhs.fold(Chain.empty[Segment])(t => spaced("=") :+ Segment.Content(t))
+      case TypeDef(docs, mods, name, typeParameters, upperBound, lowerBound, rhs) =>
+        val upper  = upperBound.fold(Chain.empty[Segment])(t => spaced(">:") :+ Segment.Content(t))
+        val lower  = lowerBound.fold(Chain.empty[Segment])(t => spaced("<:") :+ Segment.Content(t))
+        val equal  = rhs.fold(Chain.empty[Segment])(t => spaced("=") :+ Segment.Content(t))
+        val params = printParameters(typeParameters, Nil, Nil)
 
         makeDocs(docs) ++ printMods(mods) ++
-          Chain(Segment.Content("type"), Segment.Space, Segment.Content(name)) ++ lower ++ upper ++ equal
+          Chain(Segment.Content("type"), Segment.Space, Segment.Content(name)) ++ params ++ lower ++ upper ++ equal
 
       case FreeformDefinition(docs, content) =>
         if (content.isEmpty) Chain.empty
@@ -424,6 +427,9 @@ object GenAST {
 
       if (members.nonEmpty) newPart :+ Segment.Space :+ membersPart :+ Segment.NewlineIfNotAlreadyPrinted
       else newPart :+ Segment.NewlineIfNotAlreadyPrinted
+
+    case Select(qualifier, property) =>
+      printExpr(qualifier) ++ Chain(Segment.Content("."), Segment.Content(property))
 
     case FreeformExpr(code) =>
       if (code.isEmpty) Chain.empty
