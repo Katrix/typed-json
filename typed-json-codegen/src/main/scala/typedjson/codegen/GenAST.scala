@@ -149,16 +149,28 @@ object GenAST {
 
   case class Arguments(
       args: Seq[Expr],
-      using: Boolean = false,
+      isUsing: Boolean = false,
       endsWithVarargs: Boolean = false
-  )
+  ) {
+    def withUsing: Arguments   = copy(isUsing = true)
+    def withVarargs: Arguments = copy(endsWithVarargs = true)
+  }
   object Arguments {
     def apply(args: Expr*): Arguments = Arguments(args)
   }
 
-  sealed trait Expr                                                                        extends Definition
-  case class Block(statements: Seq[Definition], last: Expr)                                extends Expr
-  case class FunctionCall(function: Expr, typeArgs: Seq[String], argss: Seq[Arguments])    extends Expr
+  sealed trait Expr                                                                     extends Definition
+  case class Block(statements: Seq[Definition], last: Expr)                             extends Expr
+  case class FunctionCall(function: Expr, typeArgs: Seq[String], argss: Seq[Arguments]) extends Expr
+  object FunctionCall {
+    def simple(function: String, args: Seq[Expr]): FunctionCall =
+      FunctionCall(FreeformExpr(function), Nil, Seq(Arguments(args)))
+
+    def simple(function: String, args: Arguments): FunctionCall =
+      FunctionCall(FreeformExpr(function), Nil, Seq(args))
+      
+  }
+
   case class AssignExpr(lhs: String, rhs: Expr)                                            extends Expr
   case class FreeformExpr(code: String)                                                    extends Expr
   case class NewExpr(extend: Expr, withs: Seq[Expr] = Nil, members: Seq[Definition] = Nil) extends Expr
@@ -172,18 +184,23 @@ object GenAST {
   case class MatchCase(lhs: Expr, rhs: Expr)
   object MatchCase {
     def fromUnapply(identifier: String, args: Seq[Expr], body: Expr): MatchCase =
-      MatchCase(FunctionCall(FreeformExpr(identifier), Nil, Seq(Arguments(args*))), body)
+      MatchCase(FunctionCall(FreeformExpr(identifier), Nil, Seq(Arguments(args))), body)
 
     def typeGuarded(name: String, tpe: String, body: Expr): MatchCase =
       MatchCase(TypeAscription(GenAST.identExpr(name), tpe), body)
   }
 
   def simpleFunctionCall(function: String, args: Seq[Expr]): FunctionCall =
-    FunctionCall(FreeformExpr(function), Nil, Seq(Arguments(args*)))
+    FunctionCall.simple(function, args)
 
   def stringExpr(s: String): Expr = FreeformExpr("\"" + s + "\"")
 
   def identExpr(s: String): Expr = FreeformExpr(s)
+
+  def idents(head: String, tail: String*): Expr =
+    tail.foldLeft(identExpr(head)) { case (acc, t) =>
+      GenAST.Select(acc, t)
+    }
 
   def printFile(file: ScalaFile)(implicit printerOptions: PrinterOptions, dialect: ScalaDialect): String = {
     s"""|//noinspection ${file.intelliJIgnoredInspections.mkString(", ")}
@@ -193,6 +210,11 @@ object GenAST {
         |
         |${CodePrinter.print(printDefinitions(file.definitions).flatMap(identity).toList).mkString("\n")}""".stripMargin
   }
+
+  def printDefinitionToString(
+      defn: Definition
+  )(implicit printerOptions: PrinterOptions, dialect: ScalaDialect): String =
+    CodePrinter.print(printDefinition(defn).toList).mkString("\n")
 
   def printDefinitions(definitions: Seq[Definition])(implicit dialect: ScalaDialect): Chain[Chain[Segment]] =
     Chain.fromSeq(definitions).map { definition =>
@@ -418,12 +440,12 @@ object GenAST {
     }
 
   private def printArgs(args: Arguments)(implicit dialect: ScalaDialect): Segment = {
-    val exprs = args.args.map(printExpr).toSeq
+    val exprs = args.args.map(printExpr)
 
     if (exprs.isEmpty) Segment.simpleParameterBlock("(", exprs.map(_.toList).toList, ")")
     else {
       val withUsing =
-        if (args.using && dialect.writeUsing)
+        if (args.isUsing && dialect.writeUsing)
           (Chain(Segment.Content("using"), Segment.Space) ++ exprs.head) +: exprs.tail
         else exprs
       val withVarargs =

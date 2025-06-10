@@ -124,9 +124,11 @@ object CodePrinter {
           case NewlineIfNotEnoughSpace(content) =>
             val printContent = print(content)
             val isBlocks = content.forall {
-              case _: Block          => true
-              case _: ParameterBlock => true
-              case _                 => false
+              case _: Block                   => true
+              case _: ParameterBlock          => true
+              case SpaceIfNotAlreadyPrinted   => true
+              case NewlineIfNotAlreadyPrinted => true
+              case _                          => false
             }
 
             printRec(
