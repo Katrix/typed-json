@@ -442,7 +442,7 @@ object GenAST {
   private def printArgs(args: Arguments)(implicit dialect: ScalaDialect): Segment = {
     val exprs = args.args.map(printExpr)
 
-    if (exprs.isEmpty) Segment.simpleParameterBlock("(", exprs.map(_.toList).toList, ")")
+    if (exprs.isEmpty) Segment.simpleParameterBlock("(", List(Nil), ")")
     else {
       val withUsing =
         if (args.isUsing && dialect.writeUsing)
