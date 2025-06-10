@@ -39,7 +39,10 @@ trait TypedJsonCodeGen {
   def isFieldUndefined(field: FieldDef, allUndefined: Boolean): Boolean =
     isUndefined(allUndefined, field.withUndefined, field.alwaysPresent)
 
-  def generateCodeFromFile(generatedRoot: Path, yamlFile: Path)(implicit printerOptions: PrinterOptions): String = {
+  def generateCodeFromFile(
+      generatedRoot: Path,
+      yamlFile: Path
+  )(implicit printerOptions: PrinterOptions, dialect: ScalaDialect): String = {
     val relativeYamlFile = generatedRoot.relativize(yamlFile)
 
     val relativeYamlPath = Compat.javaIteratorToScalaIterator(relativeYamlFile.iterator).map(_.toString).toList.init
@@ -252,7 +255,7 @@ trait TypedJsonCodeGen {
                 GenAST.FunctionCall(
                   GenAST.FreeformExpr("selectDynamic"),
                   Seq(tpe),
-                  Seq(Seq(GenAST.stringExpr(jsonName)))
+                  Seq(GenAST.Arguments(GenAST.stringExpr(jsonName)))
                 )
             )
           ),

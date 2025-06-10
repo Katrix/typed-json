@@ -147,23 +147,45 @@ object GenAST {
       lowerBound: Option[String] = None
   )
 
+  case class Arguments(
+      args: Seq[Expr],
+      using: Boolean = false,
+      endsWithVarargs: Boolean = false
+  )
+  object Arguments {
+    def apply(args: Expr*): Arguments = Arguments(args)
+  }
+
   sealed trait Expr                                                                        extends Definition
   case class Block(statements: Seq[Definition], last: Expr)                                extends Expr
-  case class FunctionCall(function: Expr, typeArgs: Seq[String], argss: Seq[Seq[Expr]])    extends Expr
+  case class FunctionCall(function: Expr, typeArgs: Seq[String], argss: Seq[Arguments])    extends Expr
   case class AssignExpr(lhs: String, rhs: Expr)                                            extends Expr
   case class FreeformExpr(code: String)                                                    extends Expr
   case class NewExpr(extend: Expr, withs: Seq[Expr] = Nil, members: Seq[Definition] = Nil) extends Expr
   case class ExprWithFreeform(leftFreeform: String, expr: Expr, rightFreeform: String)     extends Expr
   case class Select(qualifier: Expr, property: String)                                     extends Expr
+  case class Lambda(parameter: Seq[Parameter], body: Expr)                                 extends Expr
+  case class PartialLambda(cases: Seq[MatchCase])                                          extends Expr
+  case class TypeAscription(expr: Expr, str: String)                                       extends Expr
+  case class Match(matchOn: Expr, cases: Seq[MatchCase])                                   extends Expr
+
+  case class MatchCase(lhs: Expr, rhs: Expr)
+  object MatchCase {
+    def fromUnapply(identifier: String, args: Seq[Expr], body: Expr): MatchCase =
+      MatchCase(FunctionCall(FreeformExpr(identifier), Nil, Seq(Arguments(args*))), body)
+
+    def typeGuarded(name: String, tpe: String, body: Expr): MatchCase =
+      MatchCase(TypeAscription(GenAST.identExpr(name), tpe), body)
+  }
 
   def simpleFunctionCall(function: String, args: Seq[Expr]): FunctionCall =
-    FunctionCall(FreeformExpr(function), Nil, Seq(args))
+    FunctionCall(FreeformExpr(function), Nil, Seq(Arguments(args*)))
 
   def stringExpr(s: String): Expr = FreeformExpr("\"" + s + "\"")
 
   def identExpr(s: String): Expr = FreeformExpr(s)
 
-  def printFile(file: ScalaFile)(implicit printerOptions: PrinterOptions): String = {
+  def printFile(file: ScalaFile)(implicit printerOptions: PrinterOptions, dialect: ScalaDialect): String = {
     s"""|//noinspection ${file.intelliJIgnoredInspections.mkString(", ")}
         |package ${file.packageLoc}
         |
@@ -172,7 +194,7 @@ object GenAST {
         |${CodePrinter.print(printDefinitions(file.definitions).flatMap(identity).toList).mkString("\n")}""".stripMargin
   }
 
-  def printDefinitions(definitions: Seq[Definition]): Chain[Chain[Segment]] =
+  def printDefinitions(definitions: Seq[Definition])(implicit dialect: ScalaDialect): Chain[Chain[Segment]] =
     Chain.fromSeq(definitions).map { definition =>
       val segments = printDefinition(definition)
       if (segments.nonEmpty) segments :+ Segment.Newline else segments
@@ -181,7 +203,7 @@ object GenAST {
   private def spaced(content: String): Chain[Segment] =
     Chain(Segment.Space, Segment.Content(content), Segment.Space)
 
-  def printDefinition(definition: Definition): Chain[Segment] = {
+  def printDefinition(definition: Definition)(implicit dialect: ScalaDialect): Chain[Segment] = {
     definition match {
       case Imports(imports) =>
         if (imports.isEmpty) Chain.empty
@@ -345,14 +367,14 @@ object GenAST {
     }
   }
 
-  private def printWiths(withs: Seq[Expr]): Chain[Segment] = {
+  private def printWiths(withs: Seq[Expr])(implicit dialect: ScalaDialect): Chain[Segment] = {
     def part(keyword: String)(t: Expr) =
       spaced(keyword) ++ printExpr(t)
 
     Chain.fromSeq(withs).flatMap(part("with"))
   }
 
-  private def printExtends(extend: Seq[Expr]): Chain[Segment] = {
+  private def printExtends(extend: Seq[Expr])(implicit dialect: ScalaDialect): Chain[Segment] = {
     def part(keyword: String)(t: Expr) =
       spaced(keyword) ++ printExpr(t)
 
@@ -363,7 +385,7 @@ object GenAST {
       typeParameters: Seq[TypeParameter],
       parameters: Seq[Seq[Parameter]],
       implicitParameters: Seq[Parameter]
-  ): Chain[Segment] = {
+  )(implicit dialect: ScalaDialect): Chain[Segment] = {
     def printTypeParameter(tparam: TypeParameter): Chain[Segment] = {
       val upper = tparam.upperBound.fold(Chain.empty[Segment])(t => spaced(">:") :+ Segment.Content(t))
       val lower = tparam.lowerBound.fold(Chain.empty[Segment])(t => spaced(">:") :+ Segment.Content(t))
@@ -390,11 +412,35 @@ object GenAST {
     types +: Chain.fromSeq(allParameters.map(printParameterBlock))
   }
 
-  private def printRhs(rhs: Option[Expr]): Chain[Segment] = rhs.fold(Chain.empty[Segment]) { expr =>
-    spaced("=") :+ Segment.NewlineIfNotEnoughSpace(printExpr(expr).toList)
+  private def printRhs(rhs: Option[Expr])(implicit dialect: ScalaDialect): Chain[Segment] =
+    rhs.fold(Chain.empty[Segment]) { expr =>
+      spaced("=") :+ Segment.NewlineIfNotEnoughSpace(printExpr(expr).toList)
+    }
+
+  private def printArgs(args: Arguments)(implicit dialect: ScalaDialect): Segment = {
+    val exprs = args.args.map(printExpr).toSeq
+
+    if (exprs.isEmpty) Segment.simpleParameterBlock("(", exprs.map(_.toList).toList, ")")
+    else {
+      val withUsing =
+        if (args.using && dialect.writeUsing)
+          (Chain(Segment.Content("using"), Segment.Space) ++ exprs.head) +: exprs.tail
+        else exprs
+      val withVarargs =
+        if (args.endsWithVarargs) withUsing.init :+ (withUsing.last :+ Segment.Content(dialect.varargsSymbol))
+        else withUsing
+
+      Segment.simpleParameterBlock("(", withVarargs.map(_.toList).toList, ")")
+    }
   }
 
-  private def printExpr(expr: Expr): Chain[Segment] = expr match {
+  private def printMatchCase(matchCase: MatchCase)(implicit dialect: ScalaDialect): List[Segment] =
+    (Chain(Segment.Content("case"), Segment.Space) ++
+      printExpr(matchCase.lhs) ++
+      spaced("=>") ++
+      Chain(Segment.NewlineIfNotEnoughSpace(printExpr(matchCase.rhs).toList))).toList
+
+  private def printExpr(expr: Expr)(implicit dialect: ScalaDialect): Chain[Segment] = expr match {
     case Block(statements, last) =>
       Chain(
         Segment.SpaceIfNotAlreadyPrinted,
@@ -406,9 +452,7 @@ object GenAST {
     case FunctionCall(function, typeArgs, argss) =>
       printExpr(function) ++ Chain(
         Segment.simpleParameterBlock("[", typeArgs.toList.map(s => List(Segment.Content(s))), "]")
-      ) ++ Chain
-        .fromSeq(argss)
-        .map(args => Segment.simpleParameterBlock("(", args.toList.map(printExpr(_).toList), ")"))
+      ) ++ Chain.fromSeq(argss).map(printArgs)
 
     case AssignExpr(lhs, rhs) =>
       Segment.Content(lhs) +: (spaced("=") ++ printExpr(rhs))
@@ -426,6 +470,19 @@ object GenAST {
 
     case Select(qualifier, property) =>
       printExpr(qualifier) ++ Chain(Segment.Content("."), Segment.Content(property))
+
+    case Lambda(parameters, body) =>
+      printParameters(Nil, Seq(parameters), Nil) ++ spaced("=>") :+
+        Segment.NewlineIfNotEnoughSpace(printExpr(body).toList)
+
+    case PartialLambda(cases) =>
+      Chain(Segment.Space, Segment.simpleBlock("{", cases.toList.map(printMatchCase), "}"))
+
+    case TypeAscription(expr, str) =>
+      printExpr(expr) ++ Chain(Segment.Content(":"), Segment.Space, Segment.Content(str))
+
+    case Match(matchOn, cases) =>
+      printExpr(matchOn) ++ spaced("match") :+ Segment.simpleBlock("{", cases.toList.map(printMatchCase), "}")
 
     case FreeformExpr(code) =>
       if (code.isEmpty) Chain.empty
