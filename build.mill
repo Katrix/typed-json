@@ -1,7 +1,5 @@
 import $ivy.`com.github.lolgab::mill-crossplatform::0.2.4`
-import $ivy.`io.chris-kipp::mill-ci-release::0.1.9`
 import com.github.lolgab.mill.crossplatform._
-import io.kipp.mill.ci.release.CiReleaseModule
 import mill._
 import mill.scalajslib._
 import mill.scalalib._
@@ -9,7 +7,7 @@ import mill.scalalib.publish._
 
 val scalaVersions: Seq[String] = Seq("2.12.18", "2.13.12", "3.3.1")
 
-trait TypedJsonCommon extends SbtModule with CiReleaseModule {
+trait TypedJsonCommon extends SbtModule with SonatypeCentralPublishModule   {
   override def scalacOptions = T {
     super.scalacOptions() ++ {
       val majorVersion = scalaVersion().split('.').head.toInt
